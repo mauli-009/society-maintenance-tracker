@@ -4,8 +4,8 @@ A full-stack platform that helps apartment societies manage maintenance complain
 
 ## Live Demo
 
-- **Frontend (Vercel):** https://YOUR-APP.vercel.app
-- **Backend API (Render):** https://YOUR-API.onrender.com
+- **Frontend (Vercel):** https://society-maintenance-tracker-two.vercel.app/
+
 
 > The backend runs on Render's free tier, which sleeps after 15 minutes of inactivity. The first request after idle may take 30–50 seconds to wake up. Subsequent requests are fast.
 
