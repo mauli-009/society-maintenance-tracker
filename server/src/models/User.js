@@ -1,4 +1,9 @@
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+
+
+
+
 
 const userSchema = new mongoose.Schema(
   {
@@ -32,6 +37,21 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true } // adds createdAt and updatedAt automatically
 );
+
+
+userSchema.pre("save", async function () {
+  // If the password hasn't been modified, just return to proceed
+  if (!this.isModified("password")) return;
+  
+  // Hash the password
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+});
+
+// Instance method to compare entered password with hashed one
+userSchema.methods.matchPassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
 
 const User = mongoose.model("User", userSchema);
 
