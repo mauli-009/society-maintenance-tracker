@@ -1,4 +1,6 @@
 import Notice from "../models/Notice.js";
+import User from "../models/User.js";
+import { sendEmail, importantNoticeEmail } from "../utils/email.js";
 
 // @desc    Create a notice (admin)
 // @route   POST /api/notices
@@ -21,7 +23,24 @@ export const createNotice = async (req, res) => {
       postedBy: req.user._id,
     });
 
-    // (Email to residents for important notices comes in Step 10)
+    // ---- If important, email all residents (best-effort) ----
+    if (notice.isImportant) {
+      // Fetch residents (only need name + email)
+      const residents = await User.find({ role: "resident" }).select(
+        "name email"
+      );
+
+      // Send to each resident — fire-and-forget, don't block the response
+      residents.forEach((resident) => {
+        if (resident.email) {
+          const { subject, html } = importantNoticeEmail(
+            resident.name,
+            notice
+          );
+          sendEmail({ to: resident.email, subject, html });
+        }
+      });
+    }
 
     res.status(201).json({
       success: true,

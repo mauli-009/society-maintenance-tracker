@@ -1,7 +1,7 @@
 import Complaint from "../models/Complaint.js";
 import { isComplaintOverdue, priorityWeight } from "../utils/overdue.js";
 import { uploadToCloudinary } from "../utils/uploadToCloudinary.js";
-
+import { sendEmail, complaintStatusEmail } from "../utils/email.js";
 // @desc    Create a new complaint
 // @route   POST /api/complaints
 // @access  Private (resident)
@@ -267,10 +267,77 @@ export const updateStatus = async (req, res) => {
 
     await complaint.save();
 
+
+    // ---- Notify the resident of the status change (best-effort) ----
+    // Populate the resident's name/email for the email
+    const populated = await complaint.populate("resident", "name email");
+    const resident = populated.resident;
+    if (resident?.email) {
+      const { subject, html } = complaintStatusEmail(resident.name, complaint);
+      // Fire-and-forget: don't await, so the response isn't delayed by email
+      sendEmail({ to: resident.email, subject, html });
+    }
+
+    
+
     res.status(200).json({
       success: true,
       message: `Status updated to ${status}`,
       complaint,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Admin dashboard stats
+// @route   GET /api/complaints/stats/dashboard
+// @access  Private (admin)
+export const getDashboardStats = async (req, res) => {
+  try {
+    // 1. Total complaints
+    const totalComplaints = await Complaint.countDocuments();
+
+    // 2. Complaints grouped by status
+    const byStatusRaw = await Complaint.aggregate([
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]);
+
+    // 3. Complaints grouped by category
+    const byCategoryRaw = await Complaint.aggregate([
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+    ]);
+
+    // Convert aggregation arrays into clean key-value objects.
+    // e.g. [{_id:"Open",count:3}] -> { Open: 3 }
+    const byStatus = byStatusRaw.reduce((acc, item) => {
+      acc[item._id] = item.count;
+      return acc;
+    }, {});
+
+    const byCategory = byCategoryRaw.reduce((acc, item) => {
+      acc[item._id] = item.count;
+      return acc;
+    }, {});
+
+    // 4. Overdue count — recompute freshly so it's always accurate.
+    // Fetch only the open/unresolved ones and count those past the threshold.
+    const openComplaints = await Complaint.find({
+      isClosed: false,
+    }).lean();
+
+    const overdueCount = openComplaints.filter((c) =>
+      isComplaintOverdue(c)
+    ).length;
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        totalComplaints,
+        byStatus,
+        byCategory,
+        overdueCount,
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
