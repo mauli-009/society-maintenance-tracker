@@ -9,6 +9,7 @@ import {
 } from "../controllers/complaintController.js";
 import { protect, authorize } from "../middleware/authMiddleware.js";
 import { validateObjectId } from "../middleware/validateObjectId.js";
+import upload from "../middleware/upload.js";
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ const router = express.Router();
 router.use(protect);
 
 // ----- Resident routes -----
-router.post("/", createComplaint);
+router.post("/", upload.single("photo"), createComplaint);
 router.get("/my", getMyComplaints);
 
 // ----- Admin routes -----

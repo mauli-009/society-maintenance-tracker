@@ -1,12 +1,16 @@
 import Complaint from "../models/Complaint.js";
 import { isComplaintOverdue, priorityWeight } from "../utils/overdue.js";
+import { uploadToCloudinary } from "../utils/uploadToCloudinary.js";
 
 // @desc    Create a new complaint
 // @route   POST /api/complaints
 // @access  Private (resident)
+// @desc    Create a new complaint (with optional photo)
+// @route   POST /api/complaints
+// @access  Private (resident)
 export const createComplaint = async (req, res) => {
   try {
-    const { category, description, photoUrl, photoPublicId } = req.body;
+    const { category, description } = req.body;
 
     if (!category || !description) {
       return res.status(400).json({
@@ -15,14 +19,23 @@ export const createComplaint = async (req, res) => {
       });
     }
 
+    let photoUrl = "";
+    let photoPublicId = "";
+
+    // If a photo was uploaded, send it to Cloudinary
+    if (req.file) {
+      const result = await uploadToCloudinary(req.file.buffer);
+      photoUrl = result.url;
+      photoPublicId = result.publicId;
+    }
+
     const complaint = await Complaint.create({
       resident: req.user._id,
       category,
       description,
-      photoUrl: photoUrl || "",
-      photoPublicId: photoPublicId || "",
+      photoUrl,
+      photoPublicId,
       status: "Open",
-      // seed the first history entry so the audit trail starts at creation
       statusHistory: [
         {
           status: "Open",
