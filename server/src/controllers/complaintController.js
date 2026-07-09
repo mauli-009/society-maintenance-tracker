@@ -1,4 +1,5 @@
 import Complaint from "../models/Complaint.js";
+import { isComplaintOverdue, priorityWeight } from "../utils/overdue.js";
 
 // @desc    Create a new complaint
 // @route   POST /api/complaints
@@ -100,36 +101,58 @@ export const getComplaintById = async (req, res) => {
 // @desc    Get all complaints (admin) with optional filters
 // @route   GET /api/complaints
 // @access  Private (admin)
+// @desc    Get all complaints (admin) with optional filters
+// @route   GET /api/complaints
+// @access  Private (admin)
 export const getAllComplaints = async (req, res) => {
   try {
     const { category, status, priority, startDate, endDate } = req.query;
 
-    // Build a dynamic filter object
     const filter = {};
-
     if (category) filter.category = category;
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
 
-    // Date range filter on createdAt
     if (startDate || endDate) {
       filter.createdAt = {};
       if (startDate) filter.createdAt.$gte = new Date(startDate);
       if (endDate) {
-        // include the whole end day by pushing to end of that day
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
         filter.createdAt.$lte = end;
       }
     }
 
-    const complaints = await Complaint.find(filter)
+    // Fetch as plain objects (.lean()) so we can attach computed fields
+    let complaints = await Complaint.find(filter)
       .populate("resident", "name email flatNumber")
-      .sort({
-        isOverdue: -1, // overdue complaints surface at the top
-        priority: 1, // (secondary — note: string sort, refined below)
-        createdAt: -1,
-      });
+      .lean();
+
+    // Recompute overdue for each complaint based on the current time + threshold
+    complaints = complaints.map((c) => ({
+      ...c,
+      isOverdue: isComplaintOverdue(c),
+    }));
+    // Persist any overdue flag changes so other views (dashboard) stay consistent
+    const bulkOps = complaints
+      .filter((c) => c.isOverdue) // only need to flip the ones now overdue
+      .map((c) => ({
+        updateOne: {
+          filter: { _id: c._id, isOverdue: false },
+          update: { $set: { isOverdue: true } },
+        },
+      }));
+
+    if (bulkOps.length > 0) {
+      await Complaint.bulkWrite(bulkOps);
+    }
+    // Sort in JS: overdue first, then by priority (High→Low), then newest first
+    complaints.sort((a, b) => {
+      if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+      const pw = priorityWeight[b.priority] - priorityWeight[a.priority];
+      if (pw !== 0) return pw;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
 
     res.status(200).json({
       success: true,
